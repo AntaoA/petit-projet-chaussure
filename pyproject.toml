@@ -1,0 +1,11 @@
+[project]
+name = "petit-projet-chaussure"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "keras>=2.15.0",
+    "matplotlib>=3.10.6",
+    "tensorflow==2.15.*",
+]
