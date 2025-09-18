@@ -4,7 +4,8 @@ from keras import layers
 import matplotlib.pyplot as plt
 import random
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
+
 
 
 # -------------------------------
@@ -20,7 +21,7 @@ dataset = keras.utils.image_dataset_from_directory(     # original size 1080x144
     image_size=(135, 180),                              # resize to 135x180 (1/8 of original size)
     interpolation="bilinear",
     shuffle=True,
-    batch_size=1,
+    batch_size=None,    # type: ignore
     seed=42
 )
 class_names = dataset.class_names # type: ignore
@@ -54,14 +55,17 @@ train_img, test_img, train_lbl, test_lbl = train_test_split(
 train_img = train_img.astype("float32") / 255.0
 test_img  = test_img.astype("float32") / 255.0
 
+# convertir one-hot en int pour stratify (pour la cross-validation) et répartition des classes
+train_lbl_int = np.argmax(train_lbl, axis=1)
+test_lbl_int  = np.argmax(test_lbl, axis=1)
 
 # -------------------------------
 # 3. Visualisation répartition des classes
 # -------------------------------
 
 # compter le nombre d'images par classe
-unique_train, counts_train = np.unique(train_lbl, return_counts=True)
-unique_test, counts_test = np.unique(test_lbl, return_counts=True)
+unique_train, counts_train = np.unique(train_lbl_int, return_counts=True)
+unique_test, counts_test = np.unique(test_lbl_int, return_counts=True)
 
 train_counts = dict(zip([class_names[i] for i in unique_train], counts_train))
 test_counts = dict(zip([class_names[i] for i in unique_test], counts_test))
@@ -104,7 +108,8 @@ plt.show()
 # MLP
 def build_mlp(input_shape=(135,180,3), num_classes=5):
     inputs = keras.Input(shape=input_shape)
-    x = layers.Dense(256, activation="relu")(inputs)
+    x = layers.Flatten()(inputs)
+    x = layers.Dense(256, activation="relu")(x)
     x = layers.Dropout(0.3)(x)
     x = layers.Dense(128, activation="relu")(x)
     x = layers.Dropout(0.3)(x)
@@ -185,17 +190,38 @@ def build_efficientnet(input_shape=(135,180,3), num_classes=5):
 # 5. Training
 # -------------------------------
 
-# Choisir le modèle à entraîner
-model = build_mlp()
-# model = build_cnn()
-# model = build_resnet()
-# model = build_efficientnet()
+# callbacks : early stopping
+callbacks = [
+    keras.callbacks.EarlyStopping(
+        monitor="val_loss", patience=3, restore_best_weights=True
+    )
+]
 
-# Compilation
-model.compile(
-    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-    loss="categorical_crossentropy",
-    metrics=["accuracy"]
-)
+skfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+histories = []
+val_scores = []
 
-model.summary()
+for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
+    # Choisir le modèle à entraîner
+    model = build_mlp()
+    # model = build_cnn()
+    # model = build_resnet()
+    # model = build_efficientnet()
+
+    # Compilation
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss="categorical_crossentropy",
+        metrics=["accuracy"]
+    )
+
+    history = model.fit(
+        train_img[train_idx], train_lbl[train_idx],
+        validation_data=(train_img[val_idx], train_lbl[val_idx]),
+        epochs=30,
+        batch_size=32,
+        callbacks=callbacks,
+        verbose=1   # type: ignore
+    )
+    histories.append(history)
+    val_scores.append(history.history["val_accuracy"][-1])  # type: ignore
