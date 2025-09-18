@@ -1,7 +1,7 @@
 import tensorflow as tf
 import keras
+from keras import layers
 import matplotlib.pyplot as plt
-from pathlib import Path
 import random
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -59,7 +59,6 @@ unique_test, counts_test = np.unique(test_lbl, return_counts=True)
 train_counts = dict(zip([class_names[i] for i in unique_train], counts_train))
 test_counts = dict(zip([class_names[i] for i in unique_test], counts_test))
 
-# pourcentage
 train_total = sum(counts_train)
 test_total = sum(counts_test)
 
@@ -89,3 +88,19 @@ plt.legend()
 plt.grid(axis="y", linestyle="--", alpha=0.6)
 plt.tight_layout()
 plt.show()
+
+
+# -------------------------------
+# 4. Modèles
+# -------------------------------
+
+# MLP
+def build_mlp(input_shape=(135,180,3), num_classes=5):
+    inputs = keras.Input(shape=input_shape)
+    x = layers.Dense(256, activation="relu")(inputs)
+    x = layers.Dropout(0.3)(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs, name="MLP")
+
