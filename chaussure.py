@@ -117,3 +117,38 @@ def build_cnn(input_shape=(135,180,3), num_classes=5):
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="CNN")
 
+# ResNet (pre-activation, bottle-neck design)
+def residual_block(x, filters):
+    shortcut = x
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.Conv2D(filters//4, (1,1), padding="same")(x)
+    
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.Conv2D(filters//4, (3,3), padding="same")(x)
+    
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.Conv2D(filters, (1,1), padding="same")(x)
+    
+    if shortcut.shape[-1] != filters:
+        shortcut = layers.Conv2D(filters, (1,1), padding="same")(shortcut)
+
+    x = layers.Add()([x, shortcut])
+    return x
+    
+    
+def build_resnet(n_block=8, input_shape=(135,180,3), num_classes=5):
+    inputs = keras.Input(shape=input_shape)
+    x = layers.Conv2D(32, (3,3), padding="same")(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+
+    for _ in range(n_block):
+        x = residual_block(x, 32)
+
+    x = layers.GlobalAveragePooling2D()(x)
+    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs, name="ResNet_like")
+
