@@ -5,20 +5,65 @@ import matplotlib.pyplot as plt
 import random
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedKFold
+import os
 
 
+
+import os
+import random
+import matplotlib.pyplot as plt
+import keras
+
+# -------------------------------
+# 0. Affichage de quelques images par classe
+# -------------------------------
+
+data_dir = "data/Shoes"
+nb_par_classe = 1   # une seule image par classe
+compressions = [1, 8, 15, 24, 30, 36, 45, 60, 72, 90]
+
+# Récupérer uniquement les dossiers (classes)
+name_class = sorted([
+    d for d in os.listdir(data_dir)
+    if os.path.isdir(os.path.join(data_dir, d))
+])
+
+plt.figure(figsize=(len(compressions)*3, len(name_class)*3))
+
+for i, cls in enumerate(name_class):
+    cls_dir = os.path.join(data_dir, cls)
+    images = os.listdir(cls_dir)
+    img_name = random.choice(images)
+    img_path = os.path.join(cls_dir, img_name)
+
+    # afficher la même image avec plusieurs tailles
+    for j, rate in enumerate(compressions):
+        size = (1440//rate, 1080//rate)
+        img = keras.utils.load_img(img_path, target_size=size)
+        plt.subplot(len(name_class), len(compressions), i*len(compressions) + j + 1)
+        plt.imshow(img)
+        if j == 0:
+            plt.ylabel(cls, fontsize=14)
+        plt.title(f"{size[0]}x{size[1]}", fontsize=10)
+        plt.xticks([])
+        plt.yticks([])
+
+plt.suptitle("Compression progressive des images par classe", fontsize=16)
+plt.tight_layout()
+plt.subplots_adjust(top=0.9)
+plt.show()
 
 # -------------------------------
 # 1. Import des données
 # -------------------------------
-
-data_dir = "data/Shoes"
+rate = 90
+size = (1440//rate, 1080//rate)
 
 dataset = keras.utils.image_dataset_from_directory(     # original size 1080x1440
     data_dir,
     labels="inferred",
     label_mode="categorical",
-    image_size=(135, 180),                              # resize to 135x180 (1/8 of original size)
+    image_size=size,
     interpolation="bilinear",
     shuffle=True,
     batch_size=None,    # type: ignore
@@ -101,23 +146,24 @@ plt.tight_layout()
 plt.show()
 
 
+
 # -------------------------------
 # 4. Modèles
 # -------------------------------
-
+input_shape = train_img.shape[1:]
 # MLP
-def build_mlp(input_shape=(135,180,3), num_classes=5):
+def build_mlp(input_shape=input_shape, num_classes=5):
     inputs = keras.Input(shape=input_shape)
     x = layers.Flatten()(inputs)
     x = layers.Dense(256, activation="relu")(x)
     x = layers.Dropout(0.3)(x)
-    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dense(64, activation="relu")(x)
     x = layers.Dropout(0.3)(x)
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="MLP")
 
 # CNN
-def build_cnn(input_shape=(135,180,3), num_classes=5):
+def build_cnn(input_shape=input_shape, num_classes=5):
     inputs = keras.Input(shape=input_shape)
     x = layers.Conv2D(32, (3,3), activation="relu", padding="same")(inputs)
     x = layers.MaxPooling2D((2,2))(x)
@@ -149,9 +195,9 @@ def residual_block(x, filters):
 
     x = layers.Add()([x, shortcut])
     return x
-    
-    
-def build_resnet(n_block=8, input_shape=(135,180,3), num_classes=5):
+
+
+def build_resnet(n_block=8, input_shape=input_shape, num_classes=5):
     inputs = keras.Input(shape=input_shape)
     x = layers.Conv2D(32, (3,3), padding="same")(inputs)
     x = layers.BatchNormalization()(x)
@@ -168,7 +214,7 @@ def build_resnet(n_block=8, input_shape=(135,180,3), num_classes=5):
 
 # Transfert learning
 from keras.applications import EfficientNetB1
-def build_efficientnet(input_shape=(135,180,3), num_classes=5):
+def build_efficientnet(input_shape=input_shape, num_classes=5):
     base = EfficientNetB1(
         include_top=False,
         input_shape=input_shape,
