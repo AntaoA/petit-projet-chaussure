@@ -152,3 +152,21 @@ def build_resnet(n_block=8, input_shape=(135,180,3), num_classes=5):
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="ResNet_like")
 
+
+
+# Transfert learning
+from keras.applications import EfficientNetB1
+def build_efficientnet(input_shape=(135,180,3), num_classes=5):
+    base = EfficientNetB1(
+        include_top=False,
+        input_shape=input_shape,
+        pooling='avg'
+    )
+    base.trainable = False  # on gèle le backbone au début
+
+    inputs = keras.Input(shape=input_shape)
+    x = base(inputs, training=False)
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs, name="EfficientNetB1_transfer")
+
