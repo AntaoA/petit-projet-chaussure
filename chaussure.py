@@ -104,3 +104,16 @@ def build_mlp(input_shape=(135,180,3), num_classes=5):
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="MLP")
 
+# CNN
+def build_cnn(input_shape=(135,180,3), num_classes=5):
+    inputs = keras.Input(shape=input_shape)
+    x = layers.Conv2D(32, (3,3), activation="relu", padding="same")(inputs)
+    x = layers.MaxPooling2D((2,2))(x)
+    x = layers.Conv2D(64, (3,3), activation="relu", padding="same")(x)
+    x = layers.MaxPooling2D((2,2))(x)
+    x = layers.Conv2D(128, (3,3), activation="relu", padding="same")(x)
+    x = layers.GlobalAveragePooling2D()(x)                                  # mieux que Flatten qui crée trop de paramètres (128 contre 33*45*128) avec le dense après
+    x = layers.Dropout(0.4)(x)
+    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs, name="CNN")
+
