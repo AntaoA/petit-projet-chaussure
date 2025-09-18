@@ -16,7 +16,7 @@ data_dir = "data/Shoes"
 dataset = keras.utils.image_dataset_from_directory(     # original size 1080x1440
     data_dir,
     labels="inferred",
-    label_mode="int",
+    label_mode="categorical",
     image_size=(135, 180),                              # resize to 135x180 (1/8 of original size)
     interpolation="bilinear",
     shuffle=True,
@@ -44,9 +44,16 @@ labels = np.array(labels)
 print("Shape images :", images.shape)
 print("Shape labels :", labels.shape)
 
+labels_int = np.argmax(labels, axis=1)  # convertir one-hot en int pour stratify
+
 train_img, test_img, train_lbl, test_lbl = train_test_split(
-    images, labels, test_size=500, stratify=labels, random_state=42
+    images, labels, test_size=500, stratify=labels_int, random_state=42
 )
+
+# normalisation des images
+train_img = train_img.astype("float32") / 255.0
+test_img  = test_img.astype("float32") / 255.0
+
 
 # -------------------------------
 # 3. Visualisation répartition des classes
@@ -170,3 +177,25 @@ def build_efficientnet(input_shape=(135,180,3), num_classes=5):
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="EfficientNetB1_transfer")
 
+
+
+
+
+# -------------------------------
+# 5. Training
+# -------------------------------
+
+# Choisir le modèle à entraîner
+model = build_mlp()
+# model = build_cnn()
+# model = build_resnet()
+# model = build_efficientnet()
+
+# Compilation
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+model.summary()
