@@ -274,7 +274,6 @@ history = model.fit(
     train_img, train_lbl,
     epochs=30,
     batch_size=32,
-    callbacks=callbacks,
     verbose=1   # type: ignore
 )
 
