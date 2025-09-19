@@ -224,7 +224,7 @@ def build_efficientnet(input_shape=input_shape, num_classes=5):
 
 
 
-
+build_model = build_mlp
 
 # -------------------------------
 # 6. Training
@@ -242,11 +242,7 @@ histories = []
 val_scores = []
 
 for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
-    # Choisir le modèle à entraîner
-    model = build_mlp()
-    # model = build_cnn()
-    # model = build_resnet()
-    # model = build_efficientnet()
+    model = build_model()
 
     # Compilation
     model.compile(
@@ -268,7 +264,7 @@ for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
 
 print(f"\nValidation accuracy (5-fold CV): {np.mean(val_scores):.3f} ± {np.std(val_scores):.3f}")
 
-model = build_cnn()
+model = build_model()
 model.compile(
     optimizer=keras.optimizers.Adam(learning_rate=1e-3),
     loss="categorical_crossentropy",
