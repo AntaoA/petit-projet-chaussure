@@ -366,3 +366,21 @@ plt.legend()
 plt.show()
 
 
+
+# 3. Matrice de confusion
+y_pred = model.predict(test_img)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true = np.argmax(test_lbl, axis=1)
+
+cm = confusion_matrix(y_true, y_pred_classes, normalize="true")
+disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+disp.plot(cmap=plt.cm.Blues)    # type: ignore
+plt.title("Matrice de confusion")
+plt.show()
+
+# Rapport détaillé
+# precision = TP / (TP + FP)                                        exactitude des prédictions positives
+# recall    = TP / (TP + FN)                                        sensibilité, capacité à détecter les positifs
+# f1-score  = 2 * (precision * recall) / (precision + recall)       équilibre entre precision et recall
+print("\nRapport de classification :\n")
+print(classification_report(y_true, y_pred_classes))
