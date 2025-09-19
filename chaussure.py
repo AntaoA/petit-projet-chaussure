@@ -9,11 +9,6 @@ import os
 
 
 
-import os
-import random
-import matplotlib.pyplot as plt
-import keras
-
 # -------------------------------
 # 0. Affichage de quelques images par classe
 # -------------------------------
@@ -271,3 +266,25 @@ for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
     )
     histories.append(history)
     val_scores.append(history.history["val_accuracy"][-1])  # type: ignore
+
+print(f"\nValidation accuracy (5-fold CV): {np.mean(val_scores):.3f} ± {np.std(val_scores):.3f}")
+
+model = build_cnn()
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+history = model.fit(
+    train_img, train_lbl,
+    epochs=30,
+    batch_size=32,
+    callbacks=callbacks,
+    verbose=1   # type: ignore
+)
+
+# Évaluation finale
+test_loss, test_acc = model.evaluate(test_img, test_lbl, verbose=1) # type: ignore
+print(f"Test accuracy: {test_acc:.3f}")
+
+
