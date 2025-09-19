@@ -372,15 +372,78 @@ y_pred = model.predict(test_img)
 y_pred_classes = np.argmax(y_pred, axis=1)
 y_true = np.argmax(test_lbl, axis=1)
 
-cm = confusion_matrix(y_true, y_pred_classes, normalize="true")
-disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+
+cm = confusion_matrix(y_true, y_pred_classes)
+cm_norm = confusion_matrix(y_true, y_pred_classes, normalize="true")
+disp = ConfusionMatrixDisplay(confusion_matrix=cm_norm)
 disp.plot(cmap=plt.cm.Blues)    # type: ignore
 plt.title("Matrice de confusion")
 plt.show()
 
+def classification_report_extended(cm=cm):
+    n_classes = cm.shape[0]
+
+    header = f"{'class':<10}{'precision':<12}{'recall':<12}{'specificity':<14}{'f1-score':<12}{'BER':<10}{'MCC':<10}{'support':<10}"
+    print(header)
+    print("-" * len(header))
+
+    precisions, recalls, specificities, f1s, bers, mccs, supports = [], [], [], [], [], [], []
+
+    for i in range(n_classes):
+        TP = cm[i, i]
+        FN = cm[i, :].sum() - TP
+        FP = cm[:, i].sum() - TP
+        TN = cm.sum() - (TP + FP + FN)
+        
+        precision = TP / (TP + FP)                              # exactitude des prédictions positives
+        recall = TP / (TP + FN)                                 # sensibilité, capacité à détecter qu'une image est dans la classe
+        specificity = TN / (TN + FP)                            # capacité à détecter qu'une image n'est pas dans la classe
+        f1 = (2 * precision * recall) / (precision + recall)    # équilibre précision/recall
+        ber = 1 - 0.5 * (recall + specificity)                  # Balanced Error Rate: moyenne des erreurs positives et négatives (classes déséquilibrées)
+        mcc_num = (TP * TN - FP * FN)                          
+        mcc_den = np.sqrt((TP+FP)*(TP+FN)*(TN+FP)*(TN+FN))
+        mcc = mcc_num / mcc_den                                 # Matthews Correlation Coefficient: corrélation entre les vraies et les prédites (-1 à 1)
+        support = TP + FN
+
+        precisions.append(precision)
+        recalls.append(recall)
+        specificities.append(specificity)
+        f1s.append(f1)
+        bers.append(ber)
+        mccs.append(mcc)
+        supports.append(support)
+
+        print(f"{i:<10}{precision:<12.2f}{recall:<12.2f}{specificity:<14.2f}{f1:<12.2f}{ber:<10.2f}{mcc:<10.2f}{support:<10}")
+
+    # Moyennes
+    macro = {
+        "precision": np.mean(precisions),
+        "recall": np.mean(recalls),
+        "specificity": np.mean(specificities),
+        "f1": np.mean(f1s),
+        "BER": np.mean(bers),
+        "MCC": np.mean(mccs),
+        "support": np.sum(supports)/n_classes
+    }
+
+    weighted = {
+        "precision": np.average(precisions, weights=supports),
+        "recall": np.average(recalls, weights=supports),
+        "specificity": np.average(specificities, weights=supports),
+        "f1": np.average(f1s, weights=supports),
+        "BER": np.average(bers, weights=supports),
+        "MCC": np.average(mccs, weights=supports),
+        "support": np.sum(supports)
+    }
+
+    overall_acc = np.trace(cm) / np.sum(cm)
+
+    print("-" * len(header))
+    print(f"{'accuracy':<10}{'':<12}{'':<12}{'':<14}{'':<12}{'':<10}{'':<10}{overall_acc:.2f}")
+    print(f"{'avg':<10}{macro['precision']:<12.2f}{macro['recall']:<12.2f}{macro['specificity']:<14.2f}{macro['f1']:<12.2f}{macro['BER']:<10.2f}{macro['MCC']:<10.2f}{int(macro['support']):<10}")
+    print(f"{'w avg':<10}{weighted['precision']:<12.2f}{weighted['recall']:<12.2f}{weighted['specificity']:<14.2f}{weighted['f1']:<12.2f}{weighted['BER']:<10.2f}{weighted['MCC']:<10.2f}{int(weighted['support']):<10}")
+
+
 # Rapport détaillé
-# precision = TP / (TP + FP)                                        exactitude des prédictions positives
-# recall    = TP / (TP + FN)                                        sensibilité, capacité à détecter les positifs
-# f1-score  = 2 * (precision * recall) / (precision + recall)       équilibre entre precision et recall
 print("\nRapport de classification :\n")
-print(classification_report(y_true, y_pred_classes))
+classification_report_extended()
