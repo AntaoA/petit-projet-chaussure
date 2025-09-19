@@ -10,11 +10,10 @@ import os
 
 
 # -------------------------------
-# 0. Affichage de quelques images par classe
+# 1. Affichage de quelques images par classe
 # -------------------------------
 
 data_dir = "data/Shoes"
-nb_par_classe = 1   # une seule image par classe
 compressions = [1, 8, 15, 24, 30, 36, 45, 60, 72, 90]
 
 # Récupérer uniquement les dossiers (classes)
@@ -49,7 +48,7 @@ plt.subplots_adjust(top=0.9)
 plt.show()
 
 # -------------------------------
-# 1. Import des données
+# 2. Import des données
 # -------------------------------
 rate = 90
 size = (1440//rate, 1080//rate)
@@ -68,7 +67,7 @@ class_names = dataset.class_names # type: ignore
 print("Classes :", class_names)
 
 # -------------------------------
-# 2. Stratified split train/test
+# 3. Stratified split train/test
 # -------------------------------
 
 images = []
@@ -100,7 +99,7 @@ train_lbl_int = np.argmax(train_lbl, axis=1)
 test_lbl_int  = np.argmax(test_lbl, axis=1)
 
 # -------------------------------
-# 3. Visualisation répartition des classes
+# 4. Visualisation répartition des classes
 # -------------------------------
 
 # compter le nombre d'images par classe
@@ -143,7 +142,7 @@ plt.show()
 
 
 # -------------------------------
-# 4. Modèles
+# 5. Modèles
 # -------------------------------
 input_shape = train_img.shape[1:]
 # MLP
@@ -228,13 +227,13 @@ def build_efficientnet(input_shape=input_shape, num_classes=5):
 
 
 # -------------------------------
-# 5. Training
+# 6. Training
 # -------------------------------
 
 # callbacks : early stopping
 callbacks = [
     keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=3, restore_best_weights=True
+        monitor="val_loss", patience=5, restore_best_weights=True
     )
 ]
 
@@ -259,7 +258,7 @@ for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
     history = model.fit(
         train_img[train_idx], train_lbl[train_idx],
         validation_data=(train_img[val_idx], train_lbl[val_idx]),
-        epochs=30,
+        epochs=50,
         batch_size=32,
         callbacks=callbacks,
         verbose=1   # type: ignore
@@ -286,5 +285,84 @@ history = model.fit(
 # Évaluation finale
 test_loss, test_acc = model.evaluate(test_img, test_lbl, verbose=1) # type: ignore
 print(f"Test accuracy: {test_acc:.3f}")
+
+
+
+# -------------------------------
+# 7. Métriques
+# -------------------------------
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc, classification_report
+
+# 1. Courbes d'apprentissage avec moyenne et écart-type
+
+# Récupérer le nombre d'epochs réellement utilisées (early stopping)
+min_epochs = min(len(h.history["loss"]) for h in histories)
+
+# Sélectionner epochs communes
+train_losses = np.array([h.history["loss"][:min_epochs] for h in histories])
+val_losses   = np.array([h.history["val_loss"][:min_epochs] for h in histories])
+train_accs   = np.array([h.history["accuracy"][:min_epochs] for h in histories])
+val_accs     = np.array([h.history["val_accuracy"][:min_epochs] for h in histories])
+
+# Moyennes et écarts-types
+mean_train_loss, std_train_loss = train_losses.mean(axis=0), train_losses.std(axis=0)
+mean_val_loss,   std_val_loss   = val_losses.mean(axis=0),   val_losses.std(axis=0)
+mean_train_acc,  std_train_acc  = train_accs.mean(axis=0),  train_accs.std(axis=0)
+mean_val_acc,    std_val_acc    = val_accs.mean(axis=0),    val_accs.std(axis=0)
+
+epochs = range(1, min_epochs+1)
+
+plt.figure(figsize=(12,5))
+
+# Courbes Loss
+plt.subplot(1,2,1)
+plt.plot(epochs, mean_train_loss, label="train_loss", color="blue")
+plt.fill_between(epochs, mean_train_loss-std_train_loss, mean_train_loss+std_train_loss, alpha=0.2, color="blue")
+plt.plot(epochs, mean_val_loss, label="val_loss", color="orange")
+plt.fill_between(epochs, mean_val_loss-std_val_loss, mean_val_loss+std_val_loss, alpha=0.2, color="orange")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+plt.title("CV – Perte moyenne ± écart-type")
+
+# Courbes Accuracy 
+plt.subplot(1,2,2)
+plt.plot(epochs, mean_train_acc, label="train_acc", color="green")
+plt.fill_between(epochs, mean_train_acc-std_train_acc, mean_train_acc+std_train_acc, alpha=0.2, color="green")
+plt.plot(epochs, mean_val_acc, label="val_acc", color="red")
+plt.fill_between(epochs, mean_val_acc-std_val_acc, mean_val_acc+std_val_acc, alpha=0.2, color="red")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.title("CV – Accuracy moyenne ± écart-type")
+
+plt.show()
+
+
+# 2. Courbes d'apprentissage sur un seul fold
+
+fold_to_plot = 0 
+h = histories[fold_to_plot]
+
+# Courbe Loss
+plt.figure(figsize=(12,5))
+nb_epochs = range(1, len(h.history["loss"])+1)
+plt.subplot(1,2,1)
+plt.plot(nb_epochs, h.history["loss"], label=f"Train fold {fold_to_plot+1}")
+plt.plot(nb_epochs, h.history["val_loss"], label=f"Val fold {fold_to_plot+1}", linestyle="--")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.title("Courbes de perte par fold")
+plt.legend()
+
+# Courbe Accuracy
+plt.subplot(1,2,2)
+plt.plot(nb_epochs, h.history["accuracy"], label=f"Train fold {fold_to_plot+1}")
+plt.plot(nb_epochs, h.history["val_accuracy"], label=f"Val fold {fold_to_plot+1}", linestyle="--")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.title("Courbes d'accuracy par fold")
+plt.legend()
+plt.show()
 
 
