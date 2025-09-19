@@ -291,7 +291,7 @@ print(f"Test accuracy: {test_acc:.3f}")
 # -------------------------------
 # 7. Métriques
 # -------------------------------
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc, classification_report
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
 
 # 1. Courbes d'apprentissage avec moyenne et écart-type
 
@@ -447,3 +447,79 @@ def classification_report_extended(cm=cm):
 # Rapport détaillé
 print("\nRapport de classification :\n")
 classification_report_extended()
+
+
+
+
+
+# 4. Courbes ROC et PR
+
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score, roc_auc_score
+from sklearn.preprocessing import label_binarize
+
+
+n_classes = len(name_class)
+y_true_bin = label_binarize(y_true, classes=range(n_classes))   # Binariser labels
+
+# ROC
+fpr, tpr, roc_auc = {}, {}, {}
+for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_true_bin[:, i], y_pred[:, i])   # type: ignore
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# Micro-average (pondéré globalement)
+fpr["micro"], tpr["micro"], _ = roc_curve(y_true_bin.ravel(), y_pred.ravel())   # type: ignore
+roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+# Weighted-average AUC
+roc_auc["weighted"] = roc_auc_score(y_true_bin, y_pred, average="weighted")
+
+
+
+# PR
+precision, recall, ap = {}, {}, {}
+for i in range(n_classes):
+    precision[i], recall[i], _ = precision_recall_curve(y_true_bin[:, i], y_pred[:, i]) # type: ignore
+    mask = ~((precision[i] == 0) & (recall[i] == 0))
+    precision[i] = precision[i][mask]
+    recall[i] = recall[i][mask]
+    ap[i] = average_precision_score(y_true_bin[:, i], y_pred[:, i]) # type: ignore
+
+# Micro-average PR (pondérée)
+precision["micro"], recall["micro"], _ = precision_recall_curve(y_true_bin.ravel(), y_pred.ravel()) # type: ignore
+ap["micro"] = average_precision_score(y_true_bin, y_pred, average="micro")
+
+# Weighted-average AP
+ap["weighted"] = average_precision_score(y_true_bin, y_pred, average="weighted")
+
+
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+# --- ROC subplot ---
+ax = axes[0]
+for i in range(n_classes):
+    ax.plot(fpr[i], tpr[i], label=f"{name_class[i]} (AUC={roc_auc[i]:.2f})")
+ax.plot(fpr["micro"], tpr["micro"], color="black", linestyle="--", linewidth=2,
+        label=f"Micro-average (AUC={roc_auc['micro']:.2f}, W={roc_auc['weighted']:.2f})")
+ax.plot([0, 1], [0, 1], "k--", lw=1)
+ax.set_xlabel("False Positive Rate")
+ax.set_ylabel("True Positive Rate (Recall)")
+ax.set_title("Courbes ROC")
+ax.legend()
+
+
+# --- PR subplot ---
+ax = axes[1]
+for i in range(n_classes):
+    ax.plot(recall[i], precision[i], label=f"{name_class[i]} (AP={ap[i]:.2f})")
+ax.plot(recall["micro"], precision["micro"], color="black", linestyle="--", linewidth=2,
+        label=f"Micro-average (AP={ap['micro']:.2f}, W={ap['weighted']:.2f})")
+ax.hlines(y=sum(y_true_bin.ravel())/len(y_true_bin.ravel()), xmin=0, xmax=1, colors="gray", linestyles=":", label="Baseline (prévalence)")  # type: ignore
+ax.set_xlabel("Recall")
+ax.set_ylabel("Precision")
+ax.set_title("Courbes Precision-Recall")
+ax.legend()
+
+plt.tight_layout()
+plt.show()
