@@ -8,6 +8,8 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 import os
 
 
+seed = 42
+random.seed(seed)
 
 # -------------------------------
 # 1. Affichage de quelques images par classe
@@ -50,6 +52,8 @@ plt.show()
 # -------------------------------
 # 2. Import des données
 # -------------------------------
+# rate mlp = 72
+# rate cnn = 15
 rate = 90
 size = (1440//rate, 1080//rate)
 
@@ -61,7 +65,7 @@ dataset = keras.utils.image_dataset_from_directory(     # original size 1080x144
     interpolation="bilinear",
     shuffle=True,
     batch_size=None,    # type: ignore
-    seed=42
+    seed=seed
 )
 class_names = dataset.class_names # type: ignore
 print("Classes :", class_names)
@@ -87,7 +91,7 @@ print("Shape labels :", labels.shape)
 labels_int = np.argmax(labels, axis=1)  # convertir one-hot en int pour stratify
 
 train_img, test_img, train_lbl, test_lbl = train_test_split(
-    images, labels, test_size=500, stratify=labels_int, random_state=42
+    images, labels, test_size=500, stratify=labels_int, random_state=seed
 )
 
 # normalisation des images
@@ -159,70 +163,104 @@ def build_mlp(input_shape=input_shape, num_classes=5):
 # CNN
 def build_cnn(input_shape=input_shape, num_classes=5):
     inputs = keras.Input(shape=input_shape)
-    x = layers.Conv2D(32, (3,3), activation="relu", padding="same")(inputs)
+
+    x = layers.Conv2D(16, (3,3), activation="relu", padding="same")(inputs)
     x = layers.MaxPooling2D((2,2))(x)
+
+    x = layers.Conv2D(32, (3,3), activation="relu", padding="same")(x)
+    x = layers.MaxPooling2D((2,2))(x)
+
     x = layers.Conv2D(64, (3,3), activation="relu", padding="same")(x)
     x = layers.MaxPooling2D((2,2))(x)
+
     x = layers.Conv2D(128, (3,3), activation="relu", padding="same")(x)
-    x = layers.GlobalAveragePooling2D()(x)                                  # mieux que Flatten qui crée trop de paramètres (128 contre 33*45*128) avec le dense après
-    x = layers.Dropout(0.4)(x)
+    x = layers.MaxPooling2D((2,2))(x)
+
+    x = layers.GlobalAveragePooling2D()(x)                                   # mieux que Flatten qui crée trop de paramètres
+    x = layers.Dropout(0.5)(x)
+
     outputs = layers.Dense(num_classes, activation="softmax")(x)
     return keras.Model(inputs, outputs, name="CNN")
 
 # ResNet (pre-activation, bottle-neck design)
-def residual_block(x, filters):
-    shortcut = x
+def residual_block(x, filters, downsample=False):
+    shortcut = x    
+    strides = (2,2) if downsample else (1,1)
+    
+    x = layers.Conv2D(filters, (3,3), strides=strides, padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
-    x = layers.Conv2D(filters//4, (1,1), padding="same")(x)
     
+    x = layers.Conv2D(filters, (3,3), padding="same")(x)
     x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-    x = layers.Conv2D(filters//4, (3,3), padding="same")(x)
     
-    x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-    x = layers.Conv2D(filters, (1,1), padding="same")(x)
+    # Si dimensions différentes, adapter le shortcut
+    if downsample or shortcut.shape[-1] != filters:
+        shortcut = layers.Conv2D(filters, (1,1), strides=strides, padding="same")(shortcut)
+        shortcut = layers.BatchNormalization()(shortcut)
     
-    if shortcut.shape[-1] != filters:
-        shortcut = layers.Conv2D(filters, (1,1), padding="same")(shortcut)
-
     x = layers.Add()([x, shortcut])
+    x = layers.ReLU()(x)
     return x
 
 
-def build_resnet(n_block=8, input_shape=input_shape, num_classes=5):
+
+def build_resnet(input_shape=input_shape, num_classes=5):
     inputs = keras.Input(shape=input_shape)
-    x = layers.Conv2D(32, (3,3), padding="same")(inputs)
+
+    
+    # Couche initiale
+    x = layers.Conv2D(64, (7,7), strides=(2,2), padding="same")(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.ReLU()(x)
-
-    for _ in range(n_block):
-        x = residual_block(x, 32)
-
+    x = layers.MaxPooling2D((3,3), strides=(2,2), padding="same")(x)
+    
+    # Stages ResNet
+    x = residual_block(x, 64)
+    x = residual_block(x, 64)
+    
+    x = residual_block(x, 128, downsample=True)
+    x = residual_block(x, 128)
+    
+    x = residual_block(x, 256, downsample=True)
+    x = residual_block(x, 256)
+    
     x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(num_classes, activation="softmax")(x)
-    return keras.Model(inputs, outputs, name="ResNet_like")
-
-
-
+    
+    return keras.Model(inputs, outputs, name="ResNet")
+    
 # Transfert learning
-from keras.applications import EfficientNetB1
+from keras.applications import EfficientNetB0
+from keras.applications.efficientnet import preprocess_input
 def build_efficientnet(input_shape=input_shape, num_classes=5):
-    base = EfficientNetB1(
+    base = EfficientNetB0(
         include_top=False,
         input_shape=input_shape,
         pooling='avg'
     )
-    base.trainable = False  # on gèle le backbone au début
+
+    # Fine-tuning progressif
+    base.trainable = True
+    for layer in base.layers[:-20]:   # gèle toutes sauf les 20 dernières
+        layer.trainable = False
 
     inputs = keras.Input(shape=input_shape)
-    x = base(inputs, training=False)
-    x = layers.Dropout(0.3)(x)
+
+    x = preprocess_input(inputs)
+
+    # Backbone
+    x = base(x, training=True)
+
+    # Head
+    x = layers.Dropout(0.4)(x)
+    x = layers.Dense(256, activation="relu")(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.4)(x)
     outputs = layers.Dense(num_classes, activation="softmax")(x)
-    return keras.Model(inputs, outputs, name="EfficientNetB1_transfer")
 
-
+    return keras.Model(inputs, outputs, name="EfficientNetB0_transfer")
 
 build_model = build_mlp
 
@@ -233,13 +271,14 @@ build_model = build_mlp
 # callbacks : early stopping
 callbacks = [
     keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=5, restore_best_weights=True
+        monitor="val_loss", patience=10, restore_best_weights=True
     )
 ]
 
-skfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+skfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
 histories = []
 val_scores = []
+best_epochs = []
 
 for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
     model = build_model()
@@ -254,16 +293,25 @@ for train_idx, val_idx in skfold.split(train_img, train_lbl_int):
     history = model.fit(
         train_img[train_idx], train_lbl[train_idx],
         validation_data=(train_img[val_idx], train_lbl[val_idx]),
-        epochs=50,
+        epochs=200,
         batch_size=32,
         callbacks=callbacks,
         verbose=1   # type: ignore
     )
     histories.append(history)
     val_scores.append(history.history["val_accuracy"][-1])  # type: ignore
+    
+    best_epoch = np.argmin(history.history["val_loss"]) + 1  # +1 car index 0-based
+    best_epochs.append(best_epoch)
 
 print(f"\nValidation accuracy (5-fold CV): {np.mean(val_scores):.3f} ± {np.std(val_scores):.3f}")
+print(f"Meilleur epoch (5-fold CV): {np.mean(best_epochs)} ± {np.std(best_epochs)}")
+print(f"Epoch choisi : {np.mean(best_epochs)}")
 
+
+
+
+# Entraînement final sur tout le train set
 model = build_model()
 model.compile(
     optimizer=keras.optimizers.Adam(learning_rate=1e-3),
@@ -272,7 +320,7 @@ model.compile(
 )
 history = model.fit(
     train_img, train_lbl,
-    epochs=30,
+    epochs=int(np.median(best_epochs)),
     batch_size=32,
     verbose=1   # type: ignore
 )
@@ -290,22 +338,30 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve,
 
 # 1. Courbes d'apprentissage avec moyenne et écart-type
 
-# Récupérer le nombre d'epochs réellement utilisées (early stopping)
-min_epochs = min(len(h.history["loss"]) for h in histories)
+max_epochs = max(len(h.history["loss"]) for h in histories)
 
-# Sélectionner epochs communes
-train_losses = np.array([h.history["loss"][:min_epochs] for h in histories])
-val_losses   = np.array([h.history["val_loss"][:min_epochs] for h in histories])
-train_accs   = np.array([h.history["accuracy"][:min_epochs] for h in histories])
-val_accs     = np.array([h.history["val_accuracy"][:min_epochs] for h in histories])
+# Construire des arrays remplis avec NaN pour les folds plus courts
+def pad_history(h, key, max_epochs):
+    vals = np.array(h.history[key])
+    if len(vals) < max_epochs:
+        vals = np.concatenate([vals, [np.nan]*(max_epochs - len(vals))])
+    return vals
 
-# Moyennes et écarts-types
-mean_train_loss, std_train_loss = train_losses.mean(axis=0), train_losses.std(axis=0)
-mean_val_loss,   std_val_loss   = val_losses.mean(axis=0),   val_losses.std(axis=0)
-mean_train_acc,  std_train_acc  = train_accs.mean(axis=0),  train_accs.std(axis=0)
-mean_val_acc,    std_val_acc    = val_accs.mean(axis=0),    val_accs.std(axis=0)
+# Appliquer pad_history
+train_losses = np.array([pad_history(h, "loss", max_epochs) for h in histories])
+val_losses   = np.array([pad_history(h, "val_loss", max_epochs) for h in histories])
+train_accs   = np.array([pad_history(h, "accuracy", max_epochs) for h in histories])
+val_accs     = np.array([pad_history(h, "val_accuracy", max_epochs) for h in histories])
 
-epochs = range(1, min_epochs+1)
+# Moyennes et écarts-types (en ignorant les NaN)
+mean_train_loss, std_train_loss = np.nanmean(train_losses, axis=0), np.nanstd(train_losses, axis=0)
+mean_val_loss,   std_val_loss   = np.nanmean(val_losses,   axis=0), np.nanstd(val_losses,   axis=0)
+mean_train_acc,  std_train_acc  = np.nanmean(train_accs,   axis=0), np.nanstd(train_accs,   axis=0)
+mean_val_acc,    std_val_acc    = np.nanmean(val_accs,     axis=0), np.nanstd(val_accs,     axis=0)
+
+epochs = range(1, max_epochs+1)
+
+median_best = int(np.median(best_epochs))
 
 plt.figure(figsize=(12,5))
 
@@ -315,17 +371,46 @@ plt.plot(epochs, mean_train_loss, label="train_loss", color="blue")
 plt.fill_between(epochs, mean_train_loss-std_train_loss, mean_train_loss+std_train_loss, alpha=0.2, color="blue")
 plt.plot(epochs, mean_val_loss, label="val_loss", color="orange")
 plt.fill_between(epochs, mean_val_loss-std_val_loss, mean_val_loss+std_val_loss, alpha=0.2, color="orange")
+
+# Marquer la fin de chaque fold
+for i, h in enumerate(histories):
+    stop_epoch = len(h.history["loss"])
+    plt.axvline(stop_epoch, color="grey", linestyle="--", alpha=0.3)
+    if i == 0:
+        plt.scatter(stop_epoch, h.history["val_loss"][-1], color="orange", s=30, zorder=5, label="end val_loss (par fold)")
+        plt.scatter(stop_epoch, h.history["loss"][-1], color="blue", s=30, zorder=5, label="end train_loss (par fold)")
+    plt.scatter(stop_epoch, h.history["val_loss"][-1], color="orange", s=30, zorder=5)
+    plt.scatter(stop_epoch, h.history["loss"][-1], color="blue", s=30, zorder=5)
+
+# Médiane des best_epochs
+plt.axvline(median_best, color="black", linestyle="--", linewidth=2, label=f"median best={median_best}")
+
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend()
 plt.title("CV – Perte moyenne ± écart-type")
 
-# Courbes Accuracy 
+
+# Courbes Accuracy
 plt.subplot(1,2,2)
 plt.plot(epochs, mean_train_acc, label="train_acc", color="green")
 plt.fill_between(epochs, mean_train_acc-std_train_acc, mean_train_acc+std_train_acc, alpha=0.2, color="green")
 plt.plot(epochs, mean_val_acc, label="val_acc", color="red")
 plt.fill_between(epochs, mean_val_acc-std_val_acc, mean_val_acc+std_val_acc, alpha=0.2, color="red")
+
+# Marquer la fin de chaque fold
+for i, h in enumerate(histories):
+    stop_epoch = len(h.history["accuracy"])
+    plt.axvline(stop_epoch, color="grey", linestyle="--", alpha=0.3)
+    if i == 0:
+        plt.scatter(stop_epoch, h.history["val_accuracy"][-1], color="red", s=30, zorder=5, label="end val_acc (par fold)")
+        plt.scatter(stop_epoch, h.history["accuracy"][-1], color="green", s=30, zorder=5, label="end train_acc (par fold)")
+    plt.scatter(stop_epoch, h.history["val_accuracy"][-1], color="red", s=30, zorder=5)
+    plt.scatter(stop_epoch, h.history["accuracy"][-1], color="green", s=30, zorder=5)
+
+# Médiane des best_epochs
+plt.axvline(median_best, color="black", linestyle="--", linewidth=2, label=f"median best={median_best}")
+
 plt.xlabel("Epochs")
 plt.ylabel("Accuracy")
 plt.legend()
